@@ -1,0 +1,17 @@
+you can schedule scripts in crontab
+
+crontab -e  # crontab edit
+crontab -l  # list crontab
+
+
+minute hour day year week  absolute path/full path > output_path 
+
+
+34 24 * * *  /home/ajay/pull_error.sh > /home/ajay/output_file 
+
+# you can also mail the output instead of sending it over a file 
+# using sendmail or mail command
+
+34 24 * * *  /home/ajay/pull_error.sh | mail -s "output of pull_error" ajay@gmail.com 
+
+
