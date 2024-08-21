@@ -1,0 +1,134 @@
+import requests
+
+# Replace these variables with your CF API endpoint, auth token, and app name
+CF_API_URL = 'https://api.your-pcf-domain.com'
+AUTH_TOKEN = 'your-oauth-token'  # Replace this with your OAuth token
+APP_NAME = 'your-app-name'
+
+def get_app_guid(cf_api_url, auth_token, app_name):
+    url = f"{cf_api_url}/v3/apps?names={app_name}"
+    headers = {
+        'Authorization': f'Bearer {auth_token}'
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    data = response.json()
+    if data['pagination']['total_results'] == 0:
+        raise ValueError(f"App '{app_name}' not found.")
+    
+    return data['resources'][0]['guid']
+
+def get_app_health_check_and_config(cf_api_url, auth_token, app_guid):
+    # Fetch health check info
+    url = f"{cf_api_url}/v3/processes?app_guids={app_guid}"
+    headers = {
+        'Authorization': f'Bearer {auth_token}'
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    processes = response.json()['resources']
+    
+    health_check_info = []
+    for process in processes:
+        process_type = process['type']
+        health_check_type = process['health_check']['type']
+        health_check_endpoint = process['health_check'].get('data', {}).get('endpoint', '')
+        
+        health_check_info.append({
+            'process_type': process_type,
+            'health_check_type': health_check_type,
+            'health_check_endpoint': health_check_endpoint
+        })
+    
+    # Fetch environment variables
+    url = f"{cf_api_url}/v3/apps/{app_guid}/environment_variables"
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    environment_variables = response.json()['var']
+    
+    return health_check_info, environment_variables
+
+def get_app_manifest(cf_api_url, auth_token, app_guid):
+    url = f"{cf_api_url}/v3/apps/{app_guid}/manifest"
+    headers = {
+        'Authorization': f'Bearer {auth_token}',
+        'Accept': 'application/x-yaml'  # Request YAML format
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    return response.text
+
+def get_app_deployment_info(cf_api_url, auth_token, app_guid):
+    url = f"{cf_api_url}/v3/deployments?app_guids={app_guid}"
+    headers = {
+        'Authorization': f'Bearer {auth_token}'
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    deployments = response.json()['resources']
+    
+    deployment_info = []
+    for deployment in deployments:
+        deployment_info.append({
+            'deployment_guid': deployment['guid'],
+            'status': deployment['status']['value'],
+            'created_at': deployment['created_at']
+        })
+    
+    return deployment_info
+
+def get_app_version(cf_api_url, auth_token, app_guid):
+    url = f"{cf_api_url}/v3/apps/{app_guid}"
+    headers = {
+        'Authorization': f'Bearer {auth_token}'
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    app_info = response.json()
+    return app_info['revision']['version'], app_info['lifecycle']['data']['buildpacks']
+
+def main():
+    try:
+        app_guid = get_app_guid(CF_API_URL, AUTH_TOKEN, APP_NAME)
+        health_check_info, environment_variables = get_app_health_check_and_config(CF_API_URL, AUTH_TOKEN, app_guid)
+        manifest = get_app_manifest(CF_API_URL, AUTH_TOKEN, app_guid)
+        deployment_info = get_app_deployment_info(CF_API_URL, AUTH_TOKEN, app_guid)
+        app_version, buildpacks = get_app_version(CF_API_URL, AUTH_TOKEN, app_guid)
+        
+        print(f"Health Check Information for app '{APP_NAME}':")
+        for info in health_check_info:
+            print(f"Process Type: {info['process_type']}, Health Check Type: {info['health_check_type']}, Endpoint: {info['health_check_endpoint']}")
+        
+        print("\nEnvironment Variables:")
+        for key, value in environment_variables.items():
+            print(f"{key}: {value}")
+        
+        print("\nManifest File:")
+        print(manifest)
+        
+        print("\nDeployment Information:")
+        for deployment in deployment_info:
+            print(f"Deployment GUID: {deployment['deployment_guid']}, Status: {deployment['status']}, Created At: {deployment['created_at']}")
+        
+        print(f"\nCurrent App Version: {app_version}")
+        
+        print("\nBuildpacks Used:")
+        for buildpack in buildpacks:
+            print(f"- {buildpack}")
+    
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == '__main__':
+    main()
