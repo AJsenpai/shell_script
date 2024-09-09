@@ -3,27 +3,46 @@ from tkinter import filedialog, scrolledtext
 import xml.etree.ElementTree as ET
 
 def parse_xml(file_path):
-    """Parse the XML file and return its content as a formatted string."""
+    """Parse the XML file and return its content as key-value pairs."""
     try:
         tree = ET.parse(file_path)
         root = tree.getroot()
-        return pretty_print_xml(root)
+        values = extract_values(root)
+        return format_key_value_pairs(values)
     except ET.ParseError as e:
         return f"Error parsing XML file: {e}"
 
-def pretty_print_xml(element, indent=""):
-    """Recursively format XML elements into a readable string."""
-    xml_string = f"{indent}<{element.tag}>"
+def extract_values(element, parent_key=""):
+    """
+    Recursively extract key-value pairs from XML elements.
+    :param element: XML element to parse.
+    :param parent_key: String representing the parent key.
+    :return: Dictionary of key-value pairs.
+    """
+    values = {}
+    # Create a combined key from the parent and current element tag
+    key = f"{parent_key}/{element.tag}" if parent_key else element.tag
+
+    # Add element text to values if present
     if element.text and element.text.strip():
-        xml_string += f"{element.text.strip()}"
-    xml_string += "\n"
+        values[key] = element.text.strip()
+
+    # Recursively parse child elements
     for child in element:
-        xml_string += pretty_print_xml(child, indent + "  ")
-    xml_string += f"{indent}</{element.tag}>\n"
-    return xml_string
+        values.update(extract_values(child, key))
+
+    return values
+
+def format_key_value_pairs(values):
+    """
+    Format key-value pairs into a readable string for display.
+    :param values: Dictionary of key-value pairs.
+    :return: Formatted string.
+    """
+    return "\n".join([f"{key}: {value}" for key, value in values.items()])
 
 def open_file():
-    """Open a file dialog to select an XML file and display its contents."""
+    """Open a file dialog to select an XML file and display its contents as key-value pairs."""
     file_path = filedialog.askopenfilename(filetypes=[("XML files", "*.xml")])
     if file_path:
         content = parse_xml(file_path)
@@ -32,9 +51,9 @@ def open_file():
 
 # Set up the GUI window
 root = tk.Tk()
-root.title("XML Viewer")
+root.title("XML Key-Value Viewer")
 
-# Set up the text area with a scroll bar to display XML contents
+# Set up the text area with a scroll bar to display key-value pairs
 text_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=80, height=30)
 text_area.pack(padx=10, pady=10)
 
