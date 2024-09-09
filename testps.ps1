@@ -84,21 +84,17 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Display folder browser dialog for remote server
-        $remotePath = Invoke-Command -Session $session -ScriptBlock {
-            [System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms") | Out-Null
-            $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-            $folderDialog.Description = "Select the folder to browse on the remote server"
-            $folderDialog.ShowDialog() | Out-Null
-            $folderDialog.SelectedPath
-        }
+        # Prompt user for a folder path
+        $folderPath = [System.Windows.Forms.MessageBox]::Show("Enter the path on the remote server (D drive) to browse files:", "Select Folder", [System.Windows.Forms.MessageBoxButtons]::OKCancel, [System.Windows.Forms.MessageBoxIcon]::Question)
 
-        if ($remotePath) {
-            # Get files from the selected folder
+        if ($folderPath -ne [System.Windows.Forms.DialogResult]::Cancel) {
+            $folderPath = "D:\"
+
+            # Fetch files from the specified folder
             $remoteFiles = Invoke-Command -Session $session -ScriptBlock {
-                param ($remotePath)
-                Get-ChildItem -Path $remotePath -File | Select-Object -ExpandProperty FullName
-            } -ArgumentList $remotePath
+                param ($folderPath)
+                Get-ChildItem -Path $folderPath -File | Select-Object -ExpandProperty FullName
+            } -ArgumentList $folderPath
 
             if ($remoteFiles) {
                 # Display file selection dialog
@@ -122,7 +118,7 @@ function ShowServerActions {
                 $downloadBtn.Add_Click({
                     $selectedFile = $listBox.SelectedItem
                     if ($selectedFile) {
-                        $localPath = [System.IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'Downloads', [System.IO.Path]::GetFileName($selectedFile))
+                        $localPath = [System.IO.Path]::Combine([Environment]::GetFolderPath('Downloads'), [System.IO.Path]::GetFileName($selectedFile))
                         Copy-Item -Path $selectedFile -Destination $localPath -FromSession $session
                         [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
                         $fileSelectionForm.Close()
@@ -177,7 +173,7 @@ function ShowServerActions {
     })
     $actionForm.Controls.Add($servicesButton)
 
-    # Button to display memory and CPU usage
+    # Button to display memory and disk usage
     $resourceButton = New-Object System.Windows.Forms.Button
     $resourceButton.Text = "Show Memory & Disk Usage"
     $resourceButton.Location = New-Object System.Drawing.Point(50, 120)
