@@ -1,0 +1,46 @@
+import tkinter as tk
+from tkinter import filedialog, scrolledtext
+import xml.etree.ElementTree as ET
+
+def parse_xml(file_path):
+    """Parse the XML file and return its content as a formatted string."""
+    try:
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+        return pretty_print_xml(root)
+    except ET.ParseError as e:
+        return f"Error parsing XML file: {e}"
+
+def pretty_print_xml(element, indent=""):
+    """Recursively format XML elements into a readable string."""
+    xml_string = f"{indent}<{element.tag}>"
+    if element.text and element.text.strip():
+        xml_string += f"{element.text.strip()}"
+    xml_string += "\n"
+    for child in element:
+        xml_string += pretty_print_xml(child, indent + "  ")
+    xml_string += f"{indent}</{element.tag}>\n"
+    return xml_string
+
+def open_file():
+    """Open a file dialog to select an XML file and display its contents."""
+    file_path = filedialog.askopenfilename(filetypes=[("XML files", "*.xml")])
+    if file_path:
+        content = parse_xml(file_path)
+        text_area.delete(1.0, tk.END)  # Clear existing content
+        text_area.insert(tk.END, content)
+
+# Set up the GUI window
+root = tk.Tk()
+root.title("XML Viewer")
+
+# Set up the text area with a scroll bar to display XML contents
+text_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=80, height=30)
+text_area.pack(padx=10, pady=10)
+
+# Set up the Open File button
+open_button = tk.Button(root, text="Open XML File", command=open_file)
+open_button.pack(pady=5)
+
+# Start the GUI event loop
+root.mainloop()
