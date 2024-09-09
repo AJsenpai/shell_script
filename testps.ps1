@@ -84,91 +84,25 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Start file browsing from the root of the drive
-        $currentPath = "D:\"
+        # Create OpenFileDialog to browse files on remote server
+        $dialog = New-Object System.Windows.Forms.OpenFileDialog
+        $dialog.InitialDirectory = "D:\" # Change initial directory as needed
+        $dialog.Title = "Select a File to Download"
+        $dialog.Multiselect = $true
 
-        # File browsing loop
-        while ($true) {
-            # Fetch directories and files
-            $remoteItems = Invoke-Command -Session $session -ScriptBlock {
-                param ($path)
-                Get-ChildItem -Path $path -Recurse | Select-Object Name, FullName, PSIsContainer
-            } -ArgumentList $currentPath
+        if ($dialog.ShowDialog() -eq "OK") {
+            $selectedFiles = $dialog.FileNames
+            foreach ($file in $selectedFiles) {
+                $fileName = [System.IO.Path]::GetFileName($file)
+                $localPath = "C:\temp\$fileName"
 
-            if ($remoteItems) {
-                # Display items in a selection dialog
-                $fileSelectionForm = New-Object System.Windows.Forms.Form
-                $fileSelectionForm.Text = "Browse Files on $serverName - $currentPath"
-                $fileSelectionForm.Size = New-Object System.Drawing.Size(600, 400)
-                $fileSelectionForm.StartPosition = "CenterScreen"
-                $fileSelectionForm.FormBorderStyle = 'FixedDialog'
-                $fileSelectionForm.MaximizeBox = $false
+                # Download the file from remote server
+                Invoke-Command -Session $session -ScriptBlock {
+                    param ($remotePath, $localPath)
+                    Copy-Item -Path $remotePath -Destination $localPath -Force
+                } -ArgumentList $file, $localPath
 
-                $listBox = New-Object System.Windows.Forms.ListBox
-                $listBox.Location = New-Object System.Drawing.Point(10, 10)
-                $listBox.Size = New-Object System.Drawing.Size(560, 300)
-                $listBox.SelectionMode = [System.Windows.Forms.SelectionMode]::MultiSimple
-                foreach ($item in $remoteItems) {
-                    $listBox.Items.Add(($item.PSIsContainer ? "[DIR] " : "[FILE] ") + $item.FullName)
-                }
-                $fileSelectionForm.Controls.Add($listBox)
-
-                $navigateBtn = New-Object System.Windows.Forms.Button
-                $navigateBtn.Text = "Navigate"
-                $navigateBtn.Location = New-Object System.Drawing.Point(50, 320)
-                $navigateBtn.Size = New-Object System.Drawing.Size(100, 30)
-                $navigateBtn.Add_Click({
-                    $selectedItem = $listBox.SelectedItem
-                    if ($selectedItem -like "[DIR]*") {
-                        $folderName = $selectedItem -replace "\[DIR\] ", ""
-                        $currentPath = Join-Path -Path $currentPath -ChildPath $folderName
-                        $fileSelectionForm.Close()
-                    }
-                })
-                $fileSelectionForm.Controls.Add($navigateBtn)
-
-                $downloadBtn = New-Object System.Windows.Forms.Button
-                $downloadBtn.Text = "Download"
-                $downloadBtn.Location = New-Object System.Drawing.Point(170, 320)
-                $downloadBtn.Size = New-Object System.Drawing.Size(100, 30)
-                $downloadBtn.Add_Click({
-                    $selectedItems = $listBox.SelectedItems
-                    foreach ($selectedItem in $selectedItems) {
-                        if ($selectedItem -like "[FILE]*") {
-                            $fileName = $selectedItem -replace "\[FILE\] ", ""
-                            $remoteFilePath = Join-Path -Path $currentPath -ChildPath $fileName
-                            $localPath = "C:\temp\$fileName"
-
-                            # Download the file
-                            Invoke-Command -Session $session -ScriptBlock {
-                                param ($remotePath, $localPath)
-                                Copy-Item -Path $remotePath -Destination $localPath -Force
-                            } -ArgumentList $remoteFilePath, $localPath
-
-                            [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
-                        }
-                    }
-                    $fileSelectionForm.Close()
-                })
-                $fileSelectionForm.Controls.Add($downloadBtn)
-
-                $backBtn = New-Object System.Windows.Forms.Button
-                $backBtn.Text = "Back"
-                $backBtn.Location = New-Object System.Drawing.Point(290, 320)
-                $backBtn.Size = New-Object System.Drawing.Size(100, 30)
-                $backBtn.Add_Click({
-                    $currentPath = [System.IO.Path]::GetDirectoryName($currentPath)
-                    if ([string]::IsNullOrEmpty($currentPath)) {
-                        $currentPath = "D:\"
-                    }
-                    $fileSelectionForm.Close()
-                })
-                $fileSelectionForm.Controls.Add($backBtn)
-
-                $fileSelectionForm.ShowDialog()
-            } else {
-                [System.Windows.Forms.MessageBox]::Show("No items found in the selected directory.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
-                break
+                [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
             }
         }
     })
