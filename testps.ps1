@@ -84,91 +84,117 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Prompt user for a folder path
-        $folderPath = [System.Windows.Forms.MessageBox]::Show("Enter the path on the remote server (D drive) to browse files:", "Select Folder", [System.Windows.Forms.MessageBoxButtons]::OKCancel, [System.Windows.Forms.MessageBoxIcon]::Question)
+        # Start file browsing from the D: drive
+        $currentPath = "D:\"
 
-        if ($folderPath -ne [System.Windows.Forms.DialogResult]::Cancel) {
-            $folderPath = "D:\"
+        # File browsing loop
+        while ($true) {
+            # Fetch directories and files
+            $remoteItems = Invoke-Command -Session $session -ScriptBlock {
+                param ($path)
+                Get-ChildItem -Path $path | Select-Object Name, FullName, PSIsContainer
+            } -ArgumentList $currentPath
 
-            # Fetch files from the specified folder
-            $remoteFiles = Invoke-Command -Session $session -ScriptBlock {
-                param ($folderPath)
-                Get-ChildItem -Path $folderPath -File | Select-Object -ExpandProperty FullName
-            } -ArgumentList $folderPath
-
-            if ($remoteFiles) {
-                # Display file selection dialog
+            if ($remoteItems) {
+                # Display items in a selection dialog
                 $fileSelectionForm = New-Object System.Windows.Forms.Form
-                $fileSelectionForm.Text = "Select File to Download from $serverName"
-                $fileSelectionForm.Size = New-Object System.Drawing.Size(400, 300)
+                $fileSelectionForm.Text = "Browse Files on $serverName - $currentPath"
+                $fileSelectionForm.Size = New-Object System.Drawing.Size(500, 400)
                 $fileSelectionForm.StartPosition = "CenterScreen"
                 $fileSelectionForm.FormBorderStyle = 'FixedDialog'
                 $fileSelectionForm.MaximizeBox = $false
 
                 $listBox = New-Object System.Windows.Forms.ListBox
                 $listBox.Location = New-Object System.Drawing.Point(10, 10)
-                $listBox.Size = New-Object System.Drawing.Size(360, 200)
-                $listBox.Items.AddRange($remoteFiles)
+                $listBox.Size = New-Object System.Drawing.Size(460, 300)
+                foreach ($item in $remoteItems) {
+                    $listBox.Items.Add(($item.PSIsContainer ? "[DIR] " : "[FILE] ") + $item.Name)
+                }
                 $fileSelectionForm.Controls.Add($listBox)
+
+                $navigateBtn = New-Object System.Windows.Forms.Button
+                $navigateBtn.Text = "Navigate"
+                $navigateBtn.Location = New-Object System.Drawing.Point(50, 320)
+                $navigateBtn.Size = New-Object System.Drawing.Size(100, 30)
+                $navigateBtn.Add_Click({
+                    $selectedItem = $listBox.SelectedItem
+                    if ($selectedItem -like "[DIR]*") {
+                        $folderName = $selectedItem -replace "\[DIR\] ", ""
+                        $currentPath = Join-Path -Path $currentPath -ChildPath $folderName
+                        $fileSelectionForm.Close()
+                    }
+                })
+                $fileSelectionForm.Controls.Add($navigateBtn)
 
                 $downloadBtn = New-Object System.Windows.Forms.Button
                 $downloadBtn.Text = "Download"
-                $downloadBtn.Location = New-Object System.Drawing.Point(150, 220)
+                $downloadBtn.Location = New-Object System.Drawing.Point(170, 320)
                 $downloadBtn.Size = New-Object System.Drawing.Size(100, 30)
                 $downloadBtn.Add_Click({
-                    $selectedFile = $listBox.SelectedItem
-                    if ($selectedFile) {
-                        $localPath = [System.IO.Path]::Combine([Environment]::GetFolderPath('Downloads'), [System.IO.Path]::GetFileName($selectedFile))
-                        Copy-Item -Path $selectedFile -Destination $localPath -FromSession $session
+                    $selectedItem = $listBox.SelectedItem
+                    if ($selectedItem -like "[FILE]*") {
+                        $fileName = $selectedItem -replace "\[FILE\] ", ""
+                        $remoteFilePath = Join-Path -Path $currentPath -ChildPath $fileName
+                        $localPath = "C:\temp\$fileName"
+
+                        # Download the file
+                        Copy-Item -Path $remoteFilePath -Destination $localPath -FromSession $session
                         [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
                         $fileSelectionForm.Close()
                     }
                 })
                 $fileSelectionForm.Controls.Add($downloadBtn)
+
+                $backBtn = New-Object System.Windows.Forms.Button
+                $backBtn.Text = "Back"
+                $backBtn.Location = New-Object System.Drawing.Point(290, 320)
+                $backBtn.Size = New-Object System.Drawing.Size(100, 30)
+                $backBtn.Add_Click({
+                    $currentPath = [System.IO.Path]::GetDirectoryName($currentPath)
+                    if ([string]::IsNullOrEmpty($currentPath)) {
+                        $currentPath = "D:\"
+                    }
+                    $fileSelectionForm.Close()
+                })
+                $fileSelectionForm.Controls.Add($backBtn)
+
                 $fileSelectionForm.ShowDialog()
             } else {
-                [System.Windows.Forms.MessageBox]::Show("No files available in the selected folder.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+                [System.Windows.Forms.MessageBox]::Show("No items found in the selected directory.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+                break
             }
         }
     })
     $actionForm.Controls.Add($downloadButton)
 
-    # Button to display running services
+    # Button to display all services
     $servicesButton = New-Object System.Windows.Forms.Button
-    $servicesButton.Text = "Show Running Services"
+    $servicesButton.Text = "Show All Services"
     $servicesButton.Location = New-Object System.Drawing.Point(50, 70)
     $servicesButton.Size = New-Object System.Drawing.Size(250, 40)
     $servicesButton.Add_Click({
         $services = Invoke-Command -Session $session -ScriptBlock {
-            Get-Service | Where-Object { $_.Status -eq 'Running' } | Select-Object -Property Name, DisplayName, Status
+            Get-Service | Select-Object -Property Name, DisplayName, Status, StartType
         }
 
         # Create a form to display services
         $servicesForm = New-Object System.Windows.Forms.Form
-        $servicesForm.Text = "Running Services on $serverName"
-        $servicesForm.Size = New-Object System.Drawing.Size(500, 400)
+        $servicesForm.Text = "Services on $serverName"
+        $servicesForm.Size = New-Object System.Drawing.Size(600, 400)
         $servicesForm.StartPosition = "CenterScreen"
         $servicesForm.FormBorderStyle = 'FixedDialog'
         $servicesForm.MaximizeBox = $false
 
-        # Create a listbox with scrollbar to display services
-        $servicesListBox = New-Object System.Windows.Forms.ListBox
-        $servicesListBox.Location = New-Object System.Drawing.Point(10, 10)
-        $servicesListBox.Size = New-Object System.Drawing.Size(460, 330)
-        $servicesListBox.ScrollAlwaysVisible = $true
-        $servicesListBox.HorizontalScrollbar = $true
-        foreach ($service in $services) {
-            $servicesListBox.Items.Add("Name: $($service.Name), DisplayName: $($service.DisplayName), Status: $($service.Status)")
-        }
-        $servicesForm.Controls.Add($servicesListBox)
+        # Create a DataGridView to display services in tabular format
+        $dataGridView = New-Object System.Windows.Forms.DataGridView
+        $dataGridView.Location = New-Object System.Drawing.Point(10, 10)
+        $dataGridView.Size = New-Object System.Drawing.Size(570, 330)
+        $dataGridView.AutoSizeColumnsMode = "Fill"
+        $dataGridView.DataSource = $services
+        $dataGridView.ScrollBars = "Vertical"
+        $servicesForm.Controls.Add($dataGridView)
 
-        $okButton = New-Object System.Windows.Forms.Button
-        $okButton.Text = "OK"
-        $okButton.Location = New-Object System.Drawing.Point(200, 350)
-        $okButton.Size = New-Object System.Drawing.Size(100, 30)
-        $okButton.Add_Click({ $servicesForm.Close() })
-        $servicesForm.Controls.Add($okButton)
-
+        # Show the services form
         $servicesForm.ShowDialog()
     })
     $actionForm.Controls.Add($servicesButton)
