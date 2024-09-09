@@ -73,7 +73,7 @@ function ShowServerActions {
     # Create form for server actions
     $actionForm = New-Object System.Windows.Forms.Form
     $actionForm.Text = "Server Actions - $serverName"
-    $actionForm.Size = New-Object System.Drawing.Size(350, 250)
+    $actionForm.Size = New-Object System.Drawing.Size(600, 400)
     $actionForm.StartPosition = "CenterScreen"
     $actionForm.FormBorderStyle = 'FixedDialog'
     $actionForm.MaximizeBox = $false
@@ -84,7 +84,7 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Start file browsing from the D: drive
+        # Start file browsing from the root of the drive
         $currentPath = "D:\"
 
         # File browsing loop
@@ -99,14 +99,14 @@ function ShowServerActions {
                 # Display items in a selection dialog
                 $fileSelectionForm = New-Object System.Windows.Forms.Form
                 $fileSelectionForm.Text = "Browse Files on $serverName - $currentPath"
-                $fileSelectionForm.Size = New-Object System.Drawing.Size(500, 400)
+                $fileSelectionForm.Size = New-Object System.Drawing.Size(600, 400)
                 $fileSelectionForm.StartPosition = "CenterScreen"
                 $fileSelectionForm.FormBorderStyle = 'FixedDialog'
                 $fileSelectionForm.MaximizeBox = $false
 
                 $listBox = New-Object System.Windows.Forms.ListBox
                 $listBox.Location = New-Object System.Drawing.Point(10, 10)
-                $listBox.Size = New-Object System.Drawing.Size(460, 300)
+                $listBox.Size = New-Object System.Drawing.Size(560, 300)
                 foreach ($item in $remoteItems) {
                     $listBox.Items.Add(($item.PSIsContainer ? "[DIR] " : "[FILE] ") + $item.Name)
                 }
@@ -138,7 +138,11 @@ function ShowServerActions {
                         $localPath = "C:\temp\$fileName"
 
                         # Download the file
-                        Copy-Item -Path $remoteFilePath -Destination $localPath -FromSession $session
+                        Invoke-Command -Session $session -ScriptBlock {
+                            param ($remotePath, $localPath)
+                            Copy-Item -Path $remotePath -Destination $localPath -Force
+                        } -ArgumentList $remoteFilePath, $localPath
+
                         [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
                         $fileSelectionForm.Close()
                     }
@@ -188,7 +192,7 @@ function ShowServerActions {
         # Create a DataGridView to display services in tabular format
         $dataGridView = New-Object System.Windows.Forms.DataGridView
         $dataGridView.Location = New-Object System.Drawing.Point(10, 10)
-        $dataGridView.Size = New-Object System.Drawing.Size(570, 330)
+        $dataGridView.Size = New-Object System.Drawing.Size(560, 330)
         $dataGridView.AutoSizeColumnsMode = "Fill"
         $dataGridView.DataSource = $services
         $dataGridView.ScrollBars = "Vertical"
