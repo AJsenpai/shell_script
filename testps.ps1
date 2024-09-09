@@ -59,7 +59,7 @@ $submitButton.Add_Click({
         $session = New-PSSession -ComputerName $server -Credential $creds -ErrorAction Stop
         [System.Windows.Forms.MessageBox]::Show("Connected successfully to $server", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
         $form.Hide()
-        ShowServerActions $session
+        ShowServerActions $session $server
     } catch {
         [System.Windows.Forms.MessageBox]::Show("Failed to connect: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     }
@@ -68,11 +68,11 @@ $form.Controls.Add($submitButton)
 
 # Function to display server actions form
 function ShowServerActions {
-    param ($session)
+    param ($session, $serverName)
 
     # Create form for server actions
     $actionForm = New-Object System.Windows.Forms.Form
-    $actionForm.Text = "Server Actions"
+    $actionForm.Text = "Server Actions - $serverName"
     $actionForm.Size = New-Object System.Drawing.Size(350, 250)
     $actionForm.StartPosition = "CenterScreen"
     $actionForm.FormBorderStyle = 'FixedDialog'
@@ -84,16 +84,46 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Open file dialog to select a file from the remote server
-        $remoteFileDialog = New-Object System.Windows.Forms.OpenFileDialog
-        $remoteFileDialog.Title = "Select a File to Download"
-        $remoteFileDialog.InitialDirectory = "D:\"
-        $remoteFileDialog.Filter = "All Files (*.*)|*.*"
-        if ($remoteFileDialog.ShowDialog() -eq 'OK') {
-            $remoteFile = $remoteFileDialog.FileName
-            $localPath = [System.IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'Downloads', [System.IO.Path]::GetFileName($remoteFile))
-            Copy-Item -Path $remoteFile -Destination $localPath -FromSession $session
-            [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        # Command to open remote file dialog for selecting files from D: drive
+        $remoteFiles = Invoke-Command -Session $session -ScriptBlock {
+            param ($remotePath)
+            [System.Windows.Forms.MessageBox]::Show("Select a file from the D: drive on the remote server.")
+            $files = Get-ChildItem -Path $remotePath -File | ForEach-Object { $_.FullName }
+            $files
+        } -ArgumentList "D:\"
+        
+        if ($remoteFiles) {
+            # Display file selection dialog
+            $fileSelectionForm = New-Object System.Windows.Forms.Form
+            $fileSelectionForm.Text = "Select File to Download from $serverName"
+            $fileSelectionForm.Size = New-Object System.Drawing.Size(400, 300)
+            $fileSelectionForm.StartPosition = "CenterScreen"
+            $fileSelectionForm.FormBorderStyle = 'FixedDialog'
+            $fileSelectionForm.MaximizeBox = $false
+
+            $listBox = New-Object System.Windows.Forms.ListBox
+            $listBox.Location = New-Object System.Drawing.Point(10, 10)
+            $listBox.Size = New-Object System.Drawing.Size(360, 200)
+            $listBox.Items.AddRange($remoteFiles)
+            $fileSelectionForm.Controls.Add($listBox)
+
+            $downloadBtn = New-Object System.Windows.Forms.Button
+            $downloadBtn.Text = "Download"
+            $downloadBtn.Location = New-Object System.Drawing.Point(150, 220)
+            $downloadBtn.Size = New-Object System.Drawing.Size(100, 30)
+            $downloadBtn.Add_Click({
+                $selectedFile = $listBox.SelectedItem
+                if ($selectedFile) {
+                    $localPath = [System.IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'Downloads', [System.IO.Path]::GetFileName($selectedFile))
+                    Copy-Item -Path $selectedFile -Destination $localPath -FromSession $session
+                    [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+                    $fileSelectionForm.Close()
+                }
+            })
+            $fileSelectionForm.Controls.Add($downloadBtn)
+            $fileSelectionForm.ShowDialog()
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("No files available on D: drive.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         }
     })
     $actionForm.Controls.Add($downloadButton)
@@ -104,9 +134,11 @@ function ShowServerActions {
     $servicesButton.Location = New-Object System.Drawing.Point(50, 70)
     $servicesButton.Size = New-Object System.Drawing.Size(250, 40)
     $servicesButton.Add_Click({
-        $services = Invoke-Command -Session $session -ScriptBlock { Get-Service | Where-Object { $_.Status -eq 'Running' } | Select-Object -Property Name, DisplayName, Status }
+        $services = Invoke-Command -Session $session -ScriptBlock {
+            Get-Service | Where-Object { $_.Status -eq 'Running' } | Select-Object -Property Name, DisplayName, Status
+        }
         $serviceList = $services | Format-Table -AutoSize | Out-String
-        [System.Windows.Forms.MessageBox]::Show($serviceList, "Running Services", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        [System.Windows.Forms.MessageBox]::Show($serviceList, "Running Services on $serverName", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
     })
     $actionForm.Controls.Add($servicesButton)
 
@@ -117,9 +149,9 @@ function ShowServerActions {
     $resourceButton.Size = New-Object System.Drawing.Size(250, 40)
     $resourceButton.Add_Click({
         $usage = Invoke-Command -Session $session -ScriptBlock {
-            $cpu = Get-WmiObject Win32_Processor | Select-Object Name, LoadPercentage
-            $memory = Get-WmiObject Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory
-            $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" | Select-Object Size, FreeSpace
+            $cpu = Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
+            $memory = Get-WmiObject Win32_OperatingSystem
+            $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
 
             # Format memory and disk space
             $totalMem = [math]::round($memory.TotalVisibleMemorySize / 1MB, 2)
@@ -130,11 +162,11 @@ function ShowServerActions {
             $freeDisk = [math]::round($disk.FreeSpace / 1GB, 2)
             $usedDisk = [math]::round($totalDisk - $freeDisk, 2)
 
-            "CPU Load: $($cpu.LoadPercentage)%`n" +
-            "Total Memory: ${totalMem} MB`nFree Memory: ${freeMem} MB`nUsed Memory: ${usedMem} MB`n" +
+            "CPU Load: ${cpu}%`n" +
+            "Total RAM: ${totalMem} MB`nUsed RAM: ${usedMem} MB`nFree RAM: ${freeMem} MB`n" +
             "Total Disk Space (C:): ${totalDisk} GB`nFree Disk Space (C:): ${freeDisk} GB`nUsed Disk Space (C:): ${usedDisk} GB"
         }
-        [System.Windows.Forms.MessageBox]::Show($usage, "Memory & Disk Usage", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        [System.Windows.Forms.MessageBox]::Show($usage, "Memory & Disk Usage on $serverName", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
     })
     $actionForm.Controls.Add($resourceButton)
 
