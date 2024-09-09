@@ -84,27 +84,56 @@ function ShowServerActions {
     $downloadButton.Location = New-Object System.Drawing.Point(50, 20)
     $downloadButton.Size = New-Object System.Drawing.Size(250, 40)
     $downloadButton.Add_Click({
-        # Create OpenFileDialog to browse files on remote server
-        $dialog = New-Object System.Windows.Forms.OpenFileDialog
-        $dialog.InitialDirectory = "D:\" # Change initial directory as needed
-        $dialog.Title = "Select a File to Download"
-        $dialog.Multiselect = $true
+        # Create a form to display directories and files on the remote server
+        $fileSelectionForm = New-Object System.Windows.Forms.Form
+        $fileSelectionForm.Text = "Select Files from $serverName"
+        $fileSelectionForm.Size = New-Object System.Drawing.Size(600, 400)
+        $fileSelectionForm.StartPosition = "CenterScreen"
+        $fileSelectionForm.FormBorderStyle = 'FixedDialog'
+        $fileSelectionForm.MaximizeBox = $false
 
-        if ($dialog.ShowDialog() -eq "OK") {
-            $selectedFiles = $dialog.FileNames
-            foreach ($file in $selectedFiles) {
-                $fileName = [System.IO.Path]::GetFileName($file)
+        # Create a ListBox to display files
+        $listBox = New-Object System.Windows.Forms.ListBox
+        $listBox.Location = New-Object System.Drawing.Point(10, 10)
+        $listBox.Size = New-Object System.Drawing.Size(560, 300)
+        $listBox.SelectionMode = [System.Windows.Forms.SelectionMode]::MultiSimple
+        $fileSelectionForm.Controls.Add($listBox)
+
+        # Load files from the remote server
+        $fileItems = Invoke-Command -Session $session -ScriptBlock {
+            param ($path)
+            Get-ChildItem -Path $path -Recurse -File | Select-Object Name, FullName
+        } -ArgumentList "D:\"
+
+        foreach ($item in $fileItems) {
+            $listBox.Items.Add($item.FullName)
+        }
+
+        # Button to download selected files
+        $downloadBtn = New-Object System.Windows.Forms.Button
+        $downloadBtn.Text = "Download"
+        $downloadBtn.Location = New-Object System.Drawing.Point(50, 320)
+        $downloadBtn.Size = New-Object System.Drawing.Size(100, 30)
+        $downloadBtn.Add_Click({
+            $selectedItems = $listBox.SelectedItems
+            foreach ($item in $selectedItems) {
+                $remoteFilePath = $item
+                $fileName = [System.IO.Path]::GetFileName($remoteFilePath)
                 $localPath = "C:\temp\$fileName"
 
                 # Download the file from remote server
                 Invoke-Command -Session $session -ScriptBlock {
                     param ($remotePath, $localPath)
                     Copy-Item -Path $remotePath -Destination $localPath -Force
-                } -ArgumentList $file, $localPath
+                } -ArgumentList $remoteFilePath, $localPath
 
                 [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
             }
-        }
+        })
+        $fileSelectionForm.Controls.Add($downloadBtn)
+
+        # Show the file selection form
+        $fileSelectionForm.ShowDialog()
     })
     $actionForm.Controls.Add($downloadButton)
 
