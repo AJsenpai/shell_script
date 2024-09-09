@@ -92,7 +92,7 @@ function ShowServerActions {
             # Fetch directories and files
             $remoteItems = Invoke-Command -Session $session -ScriptBlock {
                 param ($path)
-                Get-ChildItem -Path $path | Select-Object Name, FullName, PSIsContainer
+                Get-ChildItem -Path $path -Recurse | Select-Object Name, FullName, PSIsContainer
             } -ArgumentList $currentPath
 
             if ($remoteItems) {
@@ -107,8 +107,9 @@ function ShowServerActions {
                 $listBox = New-Object System.Windows.Forms.ListBox
                 $listBox.Location = New-Object System.Drawing.Point(10, 10)
                 $listBox.Size = New-Object System.Drawing.Size(560, 300)
+                $listBox.SelectionMode = [System.Windows.Forms.SelectionMode]::MultiSimple
                 foreach ($item in $remoteItems) {
-                    $listBox.Items.Add(($item.PSIsContainer ? "[DIR] " : "[FILE] ") + $item.Name)
+                    $listBox.Items.Add(($item.PSIsContainer ? "[DIR] " : "[FILE] ") + $item.FullName)
                 }
                 $fileSelectionForm.Controls.Add($listBox)
 
@@ -131,21 +132,23 @@ function ShowServerActions {
                 $downloadBtn.Location = New-Object System.Drawing.Point(170, 320)
                 $downloadBtn.Size = New-Object System.Drawing.Size(100, 30)
                 $downloadBtn.Add_Click({
-                    $selectedItem = $listBox.SelectedItem
-                    if ($selectedItem -like "[FILE]*") {
-                        $fileName = $selectedItem -replace "\[FILE\] ", ""
-                        $remoteFilePath = Join-Path -Path $currentPath -ChildPath $fileName
-                        $localPath = "C:\temp\$fileName"
+                    $selectedItems = $listBox.SelectedItems
+                    foreach ($selectedItem in $selectedItems) {
+                        if ($selectedItem -like "[FILE]*") {
+                            $fileName = $selectedItem -replace "\[FILE\] ", ""
+                            $remoteFilePath = Join-Path -Path $currentPath -ChildPath $fileName
+                            $localPath = "C:\temp\$fileName"
 
-                        # Download the file
-                        Invoke-Command -Session $session -ScriptBlock {
-                            param ($remotePath, $localPath)
-                            Copy-Item -Path $remotePath -Destination $localPath -Force
-                        } -ArgumentList $remoteFilePath, $localPath
+                            # Download the file
+                            Invoke-Command -Session $session -ScriptBlock {
+                                param ($remotePath, $localPath)
+                                Copy-Item -Path $remotePath -Destination $localPath -Force
+                            } -ArgumentList $remoteFilePath, $localPath
 
-                        [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
-                        $fileSelectionForm.Close()
+                            [System.Windows.Forms.MessageBox]::Show("File downloaded successfully to $localPath.", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+                        }
                     }
+                    $fileSelectionForm.Close()
                 })
                 $fileSelectionForm.Controls.Add($downloadBtn)
 
@@ -211,19 +214,19 @@ function ShowServerActions {
     $resourceButton.Add_Click({
         # Fetch CPU, Memory, and Disk usage details
         $usage = Invoke-Command -Session $session -ScriptBlock {
-            $cpuLoad = Get-WmiObject -Query "SELECT LoadPercentage FROM Win32_Processor" | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
-            $totalMem = (Get-WmiObject -Class Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1MB
-            $freeMem = (Get-WmiObject Win32_OperatingSystem).FreePhysicalMemory / 1KB
-            $usedMem = $totalMem - $freeMem
+            $cpuLoad = (Get-WmiObject -Query "SELECT LoadPercentage FROM Win32_Processor" | Measure-Object -Property LoadPercentage -Average).Average
+            $totalMem = [math]::Round((Get-WmiObject -Class Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1MB, 2)
+            $freeMem = [math]::Round((Get-WmiObject Win32_OperatingSystem).FreePhysicalMemory / 1KB / 1MB, 2)
+            $usedMem = [math]::Round($totalMem - $freeMem, 2)
             $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
-            $totalDisk = [math]::round($disk.Size / 1GB, 2)
-            $freeDisk = [math]::round($disk.FreeSpace / 1GB, 2)
-            $usedDisk = [math]::round($totalDisk - $freeDisk, 2)
+            $totalDisk = [math]::Round($disk.Size / 1GB, 2)
+            $freeDisk = [math]::Round($disk.FreeSpace / 1GB, 2)
+            $usedDisk = [math]::Round($totalDisk - $freeDisk, 2)
             return @{
                 CPU = [math]::Round($cpuLoad, 2)
-                TotalMem = [math]::Round($totalMem, 2)
-                UsedMem = [math]::Round($usedMem, 2)
-                FreeMem = [math]::Round($freeMem, 2)
+                TotalMem = $totalMem
+                UsedMem = $usedMem
+                FreeMem = $freeMem
                 TotalDisk = $totalDisk
                 FreeDisk = $freeDisk
                 UsedDisk = $usedDisk
