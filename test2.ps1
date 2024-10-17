@@ -1,59 +1,56 @@
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+# Ensure CF CLI is installed and logged in
+if (-not (Get-Command "cf" -ErrorAction SilentlyContinue)) {
+    Write-Host "CF CLI not installed. Please install it first."
+    exit
+}
 
-# Create a Form
-$form = New-Object System.Windows.Forms.Form
-$form.Text = 'XML File Parser'
-$form.Width = 600
-$form.Height = 400
-$form.StartPosition = 'CenterScreen'
+# Function to get the latest version of an app
+function Get-LatestAppVersion {
+    param (
+        [string]$appName
+    )
+    
+    # Get the list of apps with similar names
+    $apps = cf apps | Select-String -Pattern "^$appName___\d+" | ForEach-Object { $_.Line }
 
-# Create an OpenFileDialog to select XML file
-$openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
-$openFileDialog.Filter = 'XML Files (*.xml)|*.xml|All Files (*.*)|*.*'
-$openFileDialog.Title = 'Select an XML File'
-
-# Create a TextBox to display XML content
-$textBox = New-Object System.Windows.Forms.TextBox
-$textBox.Multiline = $true
-$textBox.ScrollBars = 'Vertical'
-$textBox.Dock = 'Fill'
-$form.Controls.Add($textBox)
-
-# Create a Button to open the file dialog
-$buttonOpen = New-Object System.Windows.Forms.Button
-$buttonOpen.Text = 'Open XML File'
-$buttonOpen.Dock = 'Top'
-$buttonOpen.Add_Click({
-    if ($openFileDialog.ShowDialog() -eq 'OK') {
-        $xmlPath = $openFileDialog.FileName
-        $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
-        $textBox.Text = $xmlContent
+    if ($apps.Count -eq 0) {
+        Write-Host "No versions found for app $appName."
+        return
     }
-})
-$form.Controls.Add($buttonOpen)
 
-# Create a Button to parse the XML file and display values
-$buttonParse = New-Object System.Windows.Forms.Button
-$buttonParse.Text = 'Parse XML'
-$buttonParse.Dock = 'Top'
-$buttonParse.Add_Click({
-    if ($textBox.Text -ne '') {
-        try {
-            $xmlDoc = [xml]$textBox.Text
-            $parsedOutput = $xmlDoc.OuterXml
-            $parsedOutput = $parsedOutput -replace '(<[^>]*>)', "`n$1`n"
-            $parsedOutput = $parsedOutput -replace '(</[^>]*>)', "`n$1`n"
-            [System.Windows.Forms.MessageBox]::Show($parsedOutput, 'Parsed XML Values')
-        } catch {
-            [System.Windows.Forms.MessageBox]::Show('Error parsing XML file. Please ensure the file is valid XML.', 'Error')
+    # Sort apps based on the numeric suffix
+    $latestApp = $apps | Sort-Object { [int]($_ -replace '^.*___', '') } -Descending | Select-Object -First 1
+    return $latestApp
+}
+
+# Get the list of all orgs
+$orgs = cf orgs | Select-Object -Skip 3 # Skip the first 3 lines which are headers and extra text
+
+foreach ($org in $orgs) {
+    Write-Host "Switching to Org: $org"
+    cf target -o $org
+
+    # Get the list of spaces in the org
+    $spaces = cf spaces | Select-Object -Skip 3
+
+    foreach ($space in $spaces) {
+        Write-Host "Switching to Space: $space"
+        cf target -s $space
+
+        # Get the list of apps in the space
+        $apps = cf apps | Select-Object -Skip 4 # Skip the first 4 lines (headers and extra text)
+
+        foreach ($app in $apps) {
+            # Extract the base app name (before ___)
+            $baseAppName = ($app -split '___')[0]
+
+            # Get the latest version of the app
+            $latestApp = Get-LatestAppVersion -appName $baseAppName
+
+            if ($latestApp) {
+                Write-Host "Restaging app: $latestApp"
+                cf restage $latestApp
+            }
         }
-    } else {
-        [System.Windows.Forms.MessageBox]::Show('No XML file loaded. Please open an XML file first.', 'Error')
     }
-})
-$form.Controls.Add($buttonParse)
-
-# Show the Form
-$form.Add_Shown({ $form.Activate() })
-[void]$form.ShowDialog()
+}
