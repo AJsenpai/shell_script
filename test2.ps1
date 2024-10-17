@@ -4,27 +4,45 @@ if (-not (Get-Command "cf" -ErrorAction SilentlyContinue)) {
     exit
 }
 
-# Function to get the latest version of an app
+# Function to get the latest version of an app based on the highest numeric suffix
 function Get-LatestAppVersion {
     param (
-        [string]$appName
+        [string[]]$appList
     )
     
-    # Get the list of apps with similar names
-    $apps = cf apps | Select-String -Pattern "^$appName___\d+" | ForEach-Object { $_.Line }
+    # Regex to match app names ending with a number (e.g., AppName__12)
+    $regex = "^(.*)__([0-9]+)$"
+    
+    # Filter the apps that match the pattern and extract the numeric suffix
+    $appsWithVersion = @()
 
-    if ($apps.Count -eq 0) {
-        Write-Host "No versions found for app $appName."
-        return
+    foreach ($app in $appList) {
+        if ($app -match $regex) {
+            $baseName = $matches[1]
+            $version = [int]$matches[2]
+            $appsWithVersion += [PSCustomObject]@{
+                AppName  = $app
+                BaseName = $baseName
+                Version  = $version
+            }
+        }
     }
 
-    # Sort apps based on the numeric suffix
-    $latestApp = $apps | Sort-Object { [int]($_ -replace '^.*___', '') } -Descending | Select-Object -First 1
-    return $latestApp
+    if ($appsWithVersion.Count -eq 0) {
+        Write-Host "No apps found with numeric suffix."
+        return $null
+    }
+
+    # Group by base name and select the app with the highest version number
+    $latestApps = $appsWithVersion | Group-Object -Property BaseName | ForEach-Object {
+        $_.Group | Sort-Object -Property Version -Descending | Select-Object -First 1
+    }
+
+    return $latestApps
 }
 
 # Get the list of all orgs
-$orgs = cf orgs | Select-Object -Skip 3 # Skip the first 3 lines which are headers and extra text
+$orgs = cf orgs | Select-Object -Skip 3 # Skip the first 3 lines (headers and extra text)
 
 foreach ($org in $orgs) {
     Write-Host "Switching to Org: $org"
@@ -40,16 +58,13 @@ foreach ($org in $orgs) {
         # Get the list of apps in the space
         $apps = cf apps | Select-Object -Skip 4 # Skip the first 4 lines (headers and extra text)
 
-        foreach ($app in $apps) {
-            # Extract the base app name (before ___)
-            $baseAppName = ($app -split '___')[0]
+        # Find the latest version for each app group
+        $latestApps = Get-LatestAppVersion -appList $apps
 
-            # Get the latest version of the app
-            $latestApp = Get-LatestAppVersion -appName $baseAppName
-
-            if ($latestApp) {
-                Write-Host "Restaging app: $latestApp"
-                cf restage $latestApp
+        if ($latestApps) {
+            foreach ($app in $latestApps) {
+                Write-Host "Restaging app: $($app.AppName)"
+                cf restage $app.AppName
             }
         }
     }
